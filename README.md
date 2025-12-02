@@ -18,47 +18,6 @@ RiskGuard sits inside your application and wraps LLM API calls to compute local 
 ✅ **Metadata Only** - Only aggregate risk scores are computed and stored  
 ✅ **Rolling Window** - Configurable sliding window for real-time monitoring  
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│           Your Application                  │
-│                                             │
-│  ┌───────────────────────────────────────┐ │
-│  │        RiskGuard SDK                  │ │
-│  │                                       │ │
-│  │  ┌──────────────────────────────┐   │ │
-│  │  │  Behavioral Scanner          │   │ │
-│  │  │  - Hallucination detection   │   │ │
-│  │  │  - Toxicity detection        │   │ │
-│  │  │  - Safety violations         │   │ │
-│  │  └──────────────────────────────┘   │ │
-│  │                                       │ │
-│  │  ┌──────────────────────────────┐   │ │
-│  │  │  Privacy Scanner             │   │ │
-│  │  │  - PII detection (regex)     │   │ │
-│  │  │  - Sensitive data keywords   │   │ │
-│  │  │  - Privacy risk scoring      │   │ │
-│  │  └──────────────────────────────┘   │ │
-│  │                                       │ │
-│  │  ┌──────────────────────────────┐   │ │
-│  │  │  Reliability Tracker         │   │ │
-│  │  │  - Latency monitoring        │   │ │
-│  │  │  - Error rate tracking       │   │ │
-│  │  │  - Uptime calculation        │   │ │
-│  │  └──────────────────────────────┘   │ │
-│  └───────────────────────────────────────┘ │
-│                                             │
-│           ↓ (Metadata Only)                 │
-│                                             │
-│  ┌───────────────────────────────────────┐ │
-│  │    Backend API (Optional)             │ │
-│  │    - Aggregate risk scores            │ │
-│  │    - No raw content                   │ │
-│  └───────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
-```
-
 ## Installation
 
 ```bash
