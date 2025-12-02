@@ -1,6 +1,6 @@
 # RiskGuard SDK
 
-A lightweight, privacy-first SDK for monitoring LLM/API reliability, behavioral, and data privacy risks in real-time.
+A lightweight SDK for monitoring LLM/API reliability, behavioral, and data privacy risks in real-time.
 
 ## Overview
 
