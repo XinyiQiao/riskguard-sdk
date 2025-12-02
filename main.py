@@ -13,7 +13,7 @@ print("Starting reliability test...\n")
 
 for i in range(30):
     print(f"--- API CALL #{i+1} ---")
-    result = rg.call_api(TEST_URL)
+    result = rg.chat(TEST_URL)
     print("status:", result["status"])
     print("latency:", round(result["latency"], 4), "seconds")
     print("error:", result["error"])
