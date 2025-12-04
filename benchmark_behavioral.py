@@ -176,9 +176,14 @@ def main():
         
         # 1. Call vLLM
         print("\n🔄 Calling vLLM...")
-        llm_metrics = call_vllm(prompt, model=model)
-        print(f"✅ Response received: {len(llm_metrics['output'])} chars, {llm_metrics['token_count']} tokens")
-        print(f"   TTFT: {llm_metrics['TTFT_ms']}ms | Total: {llm_metrics['Total_s']}s")
+        try:
+            llm_metrics = call_vllm(prompt, model=model)
+            print(f"✅ Response received: {len(llm_metrics['output'])} chars, {llm_metrics['token_count']} tokens")
+            print(f"   TTFT: {llm_metrics['TTFT_ms']}ms | Total: {llm_metrics['Total_s']}s")
+        except Exception as e:
+            print(f"❌ Error calling vLLM: {e}")
+            print("   Skipping this prompt...")
+            continue
         
         # 2. Run behavioral scan
         print("\n🔍 Running behavioral scan...")
