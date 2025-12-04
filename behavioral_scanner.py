@@ -1,41 +1,135 @@
 # behavioral_scanner.py
 """
 Behavioral risk scanner for detecting hallucinations, toxicity, and safety violations.
+Uses transformer models for NLI-based contradiction detection and toxicity classification.
 All scanning happens locally - no external API calls.
 """
 
-import re
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import Dict, Any
 
 
 class BehavioralScanner:
     """
-    Lightweight local behavioral scanner for LLM outputs.
-    Detects hallucination signals, toxicity, and safety violations.
+    Local behavioral scanner for LLM outputs using ML models.
+    - NLI model (facebook/bart-large-mnli) for contradiction/hallucination detection
+    - Toxicity classifier (unitary/toxic-bert) for unsafe content detection
+    - Uncertainty heuristics for confidence analysis
     """
     
     def __init__(self):
-        # Toxicity/harmful content patterns
-        self.toxic_patterns = [
-            r'\b(hate|stupid|idiot|kill|die|attack)\b',
-            r'\b(fuck|shit|damn|hell)\b',
-        ]
+        print("🔄 Loading behavioral scanner models...")
         
-        # Safety violation keywords
-        self.unsafe_keywords = [
-            'violence', 'weapon', 'bomb', 'suicide', 'murder',
-            'illegal', 'hack', 'steal', 'fraud', 'scam'
-        ]
+        # NLI model for contradiction / consistency checking
+        self.nli_tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-mnli")
+        self.nli_model = AutoModelForSequenceClassification.from_pretrained("facebook/bart-large-mnli")
         
-        # Uncertainty indicators (hallucination signals)
-        self.uncertainty_phrases = [
-            'i think', 'maybe', 'probably', 'possibly', 'might be',
-            'i\'m not sure', 'unclear', 'uncertain', 'could be'
-        ]
+        # Toxicity model for unsafe content detection
+        self.tox_tokenizer = AutoTokenizer.from_pretrained("unitary/toxic-bert")
+        self.tox_model = AutoModelForSequenceClassification.from_pretrained("unitary/toxic-bert")
         
+        print("✅ Behavioral scanner models loaded successfully.")
+        
+    def detect_hallucination(self, prompt: str, response: str) -> float:
+        """
+        Use NLI model to detect contradiction between prompt and response.
+        High contradiction score indicates potential hallucination.
+        
+        Args:
+            prompt: User input prompt
+            response: LLM response text
+            
+        Returns:
+            Contradiction probability (0-1)
+        """
+        inputs = self.nli_tokenizer(
+            prompt, 
+            response, 
+            return_tensors="pt", 
+            truncation=True,
+            max_length=512
+        )
+        
+        with torch.no_grad():
+            logits = self.nli_model(**inputs).logits
+            probs = logits.softmax(dim=1)
+            # BART-MNLI: index 0 = contradiction, 1 = neutral, 2 = entailment
+            contradiction_score = probs[0][0].item()
+        
+        return contradiction_score
+    
+    def detect_toxicity(self, text: str) -> float:
+        """
+        Use toxicity model to detect unsafe or harmful content.
+        
+        Args:
+            text: Text to analyze (typically the response)
+            
+        Returns:
+            Toxicity probability (0-1)
+        """
+        inputs = self.tox_tokenizer(
+            text, 
+            return_tensors="pt", 
+            truncation=True,
+            max_length=512
+        )
+        
+        with torch.no_grad():
+            logits = self.tox_model(**inputs).logits
+            probs = logits.softmax(dim=1)
+            # toxic-bert: index 0 = non-toxic, 1 = toxic
+            toxicity_score = probs[0][1].item()
+        
+        return toxicity_score
+    
+    def uncertainty_score(self, response: str) -> float:
+        """
+        Simple heuristic for uncertainty detection.
+        Long, repetitive, or overconfident responses indicate higher uncertainty.
+        
+        Args:
+            response: LLM response text
+            
+        Returns:
+            Uncertainty score (0-1)
+        """
+        if not response or len(response.strip()) == 0:
+            return 1.0
+        
+        words = response.split()
+        word_count = len(words)
+        
+        # Repetition ratio (low = high repetition)
+        unique_words = len(set(words))
+        repetition_ratio = unique_words / (word_count + 1e-6)
+        
+        # Overconfident language indicators
+        overconfident_words = [
+            'definitely', 'certainly', 'undoubtedly', 'absolutely',
+            'without doubt', 'guaranteed', 'always', '100%'
+        ]
+        overconfident_count = sum(
+            1 for word in overconfident_words 
+            if word in response.lower()
+        )
+        
+        # Length factor (very long responses can indicate verbosity/uncertainty)
+        length_factor = min(word_count / 100.0, 1.0)
+        
+        # Combined uncertainty score
+        uncertainty = (
+            0.2 * length_factor +                    # Long responses
+            0.3 * (1 - repetition_ratio) +          # High repetition
+            0.5 * min(overconfident_count / 3.0, 1.0)  # Overconfidence
+        )
+        
+        return min(uncertainty, 1.0)
+    
     def scan(self, prompt: str, response: str) -> Dict[str, Any]:
         """
-        Scan prompt and response for behavioral risks.
+        Scan prompt and response for behavioral risks using ML models.
         
         Args:
             prompt: User input prompt
@@ -44,94 +138,30 @@ class BehavioralScanner:
         Returns:
             Dictionary with behavioral risk metadata
         """
-        # Scan response for various signals
-        hallucination_score = self._detect_hallucination_signals(response)
-        toxicity_score = self._detect_toxicity(response)
-        safety_violation_score = self._detect_safety_violations(prompt, response)
+        # Use NLI model for hallucination/contradiction detection
+        contradiction_score = self.detect_hallucination(prompt, response)
+        
+        # Use toxicity classifier
+        toxicity_score = self.detect_toxicity(response)
+        
+        # Use heuristic for uncertainty
+        uncertainty_score = self.uncertainty_score(response)
         
         # Overall behavioral risk (weighted average)
+        # Higher weight on contradiction and toxicity (ML-based)
         behavioral_risk = (
-            0.4 * hallucination_score +
-            0.35 * toxicity_score +
-            0.25 * safety_violation_score
+            0.4 * contradiction_score +
+            0.4 * toxicity_score +
+            0.2 * uncertainty_score
         )
         
         return {
-            'hallucination_score': round(hallucination_score, 3),
+            'hallucination_score': round(contradiction_score, 3),
+            'contradiction_score': round(contradiction_score, 3),  # alias
             'toxicity_score': round(toxicity_score, 3),
-            'safety_violation_score': round(safety_violation_score, 3),
+            'uncertainty_score': round(uncertainty_score, 3),
+            'safety_violation_score': round(toxicity_score, 3),  # toxicity implies safety violation
             'behavioral_risk': round(behavioral_risk, 3),
             'has_behavioral_issues': behavioral_risk > 0.5
         }
-    
-    def _detect_hallucination_signals(self, text: str) -> float:
-        """
-        Detect hallucination/incorrectness signals using heuristics.
-        
-        Signals:
-        - Excessive uncertainty phrases
-        - Very short responses (potential evasion)
-        - Excessive repetition
-        - Contradictory statements
-        """
-        if not text or len(text.strip()) == 0:
-            return 1.0  # Empty response is suspicious
-        
-        text_lower = text.lower()
-        score = 0.0
-        
-        # Check for uncertainty phrases
-        uncertainty_count = sum(1 for phrase in self.uncertainty_phrases if phrase in text_lower)
-        if uncertainty_count > 0:
-            score += min(0.3 * uncertainty_count, 0.6)
-        
-        # Check response length (very short or very long can indicate issues)
-        word_count = len(text.split())
-        if word_count < 10:
-            score += 0.3
-        elif word_count > 500:
-            score += 0.2
-        
-        # Check for repetition (simple heuristic)
-        words = text_lower.split()
-        if len(words) > 5:
-            unique_ratio = len(set(words)) / len(words)
-            if unique_ratio < 0.5:  # High repetition
-                score += 0.4
-        
-        return min(score, 1.0)
-    
-    def _detect_toxicity(self, text: str) -> float:
-        """
-        Detect toxic or harmful language using regex patterns.
-        """
-        if not text:
-            return 0.0
-        
-        text_lower = text.lower()
-        toxic_matches = 0
-        
-        for pattern in self.toxic_patterns:
-            matches = re.findall(pattern, text_lower, re.IGNORECASE)
-            toxic_matches += len(matches)
-        
-        # Normalize score (cap at 5 matches = 1.0 score)
-        toxicity_score = min(toxic_matches / 5.0, 1.0)
-        
-        return toxicity_score
-    
-    def _detect_safety_violations(self, prompt: str, response: str) -> float:
-        """
-        Detect safety violations or harmful intent in prompt/response.
-        """
-        combined_text = (prompt + ' ' + response).lower()
-        
-        violation_count = sum(
-            1 for keyword in self.unsafe_keywords 
-            if keyword in combined_text
-        )
-        
-        # Normalize score (cap at 3 violations = 1.0 score)
-        safety_score = min(violation_count / 3.0, 1.0)
-        
-        return safety_score
+
